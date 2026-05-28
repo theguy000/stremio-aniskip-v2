@@ -6,8 +6,6 @@
  */
 
 (function () {
-  console.log("AniSkip v2: Plugin loaded.");
-
   // State
   let activeSegments = [];
   let popupElement = null;
@@ -55,7 +53,6 @@
     try {
       const val = await StremioEnhancedAPI.getSetting("autoSkip");
       autoSkipEnabled = normalizeToggle(val);
-      console.log("AniSkip: autoSkip =", autoSkipEnabled);
     } catch (e) {
       console.warn("AniSkip: Failed to load settings:", e);
     }
@@ -68,7 +65,6 @@
     StremioEnhancedAPI.onSettingsSaved(function (values) {
       if (values.autoSkip !== undefined) {
         autoSkipEnabled = normalizeToggle(values.autoSkip);
-        console.log("AniSkip: autoSkip updated =", autoSkipEnabled);
       }
     });
   }
@@ -188,14 +184,12 @@
         const val = Number(prop.data);
         if (val > 0 && !isNaN(val)) {
           currentDuration = val;
-          console.log(`AniSkip: Duration updated: ${currentDuration}s`);
         }
       } else if (prop.name === "time-pos") {
         const val = Number(prop.data);
         if (!isNaN(val)) currentTime = val;
       }
     } else if (args[0] === "mpv-event-ended") {
-      console.log("AniSkip: Playback ended, resetting times.");
       currentTime = 0;
       currentDuration = 0;
     }
@@ -225,8 +219,6 @@
   // --- API ---
 
   async function fetchMALId(metaId) {
-    console.log("AniSkip: Resolving MAL ID for:", metaId);
-
     // Direct Kitsu API query (CORS-enabled)
     if (metaId.startsWith("kitsu:")) {
       const kitsuId = metaId.split(":")[1];
@@ -237,7 +229,6 @@
           const malMapping = json.data?.find(item => item.attributes?.externalSite === "myanimelist/anime");
           if (malMapping?.attributes?.externalId) {
             const malId = parseInt(malMapping.attributes.externalId, 10);
-            console.log("AniSkip: Kitsu -> MAL ID:", malId);
             return malId;
           }
         }
@@ -268,7 +259,6 @@
         if (response.ok) {
           const data = await response.json();
           if (data?.myanimelist) {
-            console.log("AniSkip: Proxy mapping -> MAL ID:", data.myanimelist);
             return data.myanimelist;
           }
         }
@@ -311,8 +301,6 @@
       return resolvedMalIdCache.get(cacheKey);
     }
 
-    console.log(`AniSkip: Mapping MAL ID ${initialMalId} to season ${targetSeason} via Jikan`);
-
     let currentId = initialMalId;
     let visited = new Set();
 
@@ -346,7 +334,6 @@
       }
     }
 
-    console.log("AniSkip: Resolved season chain:", seasons);
     const resolvedId = seasons[targetSeason - 1] || initialMalId;
     resolvedMalIdCache.set(cacheKey, resolvedId);
     return resolvedId;
@@ -359,7 +346,6 @@
       if (response.ok) {
         const data = await response.json();
         if (data.found) return data.results;
-        console.log("AniSkip: No skip segments found for this episode/duration.");
       } else {
         console.error(`AniSkip: API returned status ${response.status}`);
       }
@@ -466,8 +452,6 @@
           if (!triggered.has(segId)) {
             triggered.add(segId);
             if (autoSkipEnabled) {
-              const label = SKIP_TYPE_LABELS[segment.skipType] || segment.skipType;
-              console.log(`AniSkip: Auto-skipping ${label} to ${endTime}s`);
               seekNatively(endTime);
             } else {
               showSkipPopup(segment);
@@ -484,8 +468,6 @@
   // --- Episode Loading ---
 
   async function loadAniSkipForEpisode(metaInfo, seasonNumber, episodeNumber) {
-    console.log(`AniSkip: Loading for ${metaInfo.name} S${seasonNumber} Ep ${episodeNumber}`);
-
     // Fetch MAL ID and poll for duration in parallel
     const malIdPromise = (async () => {
       let malId = await fetchMALId(metaInfo.id);
@@ -516,15 +498,10 @@
       return;
     }
 
-    console.log(`AniSkip: MAL ID=${malId}, Duration=${duration}s`);
-
     const segments = await fetchSkipTimes(malId, episodeNumber, duration);
     if (segments.length > 0) {
-      console.log(`AniSkip: Loaded ${segments.length} segment(s).`);
       injectTimelineMarks(segments, duration);
       monitorVideo(segments, duration);
-    } else {
-      console.log("AniSkip: No skip segments found.");
     }
   }
 
@@ -558,7 +535,6 @@
         return;
       }
 
-      console.log(`AniSkip: Detected episode: ${episodeKey}`);
       stopPlayerPolling();
       currentEpisodeKey = episodeKey;
 
