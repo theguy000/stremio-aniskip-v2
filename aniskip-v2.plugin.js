@@ -42,9 +42,7 @@
           defaultValue: false
         }
       ]);
-    } catch (e) {
-      console.warn("AniSkip: Failed to register settings:", e);
-    }
+    } catch {}
   }
 
   async function loadSettings() {
@@ -53,9 +51,7 @@
     try {
       const val = await StremioEnhancedAPI.getSetting("autoSkip");
       autoSkipEnabled = normalizeToggle(val);
-    } catch (e) {
-      console.warn("AniSkip: Failed to load settings:", e);
-    }
+    } catch {}
   }
 
   function listenForSettingsChanges() {
@@ -218,7 +214,60 @@
 
   // --- API ---
 
-  async function fetchMALId(metaId) {
+  function parsePositiveInt(value) {
+    const number = parseInt(value, 10);
+    return Number.isInteger(number) && number > 0 ? number : null;
+  }
+
+  function pickArmMALId(data, seasonNumber) {
+    if (!Array.isArray(data)) {
+      return parsePositiveInt(data?.myanimelist);
+    }
+
+    const normalizedSeasonNumber = Number.isInteger(seasonNumber) && seasonNumber > 0 ? seasonNumber : null;
+    const seasonFieldMatch = normalizedSeasonNumber
+      ? data.find(item => parsePositiveInt(item?.["thetvdb-season"]) === normalizedSeasonNumber)
+      : null;
+    const fieldMatch = parsePositiveInt(seasonFieldMatch?.myanimelist);
+    if (fieldMatch) return fieldMatch;
+
+    const seasonIndex = normalizedSeasonNumber ? normalizedSeasonNumber - 1 : -1;
+    const seasonMatch = seasonIndex >= 0 ? parsePositiveInt(data[seasonIndex]?.myanimelist) : null;
+    if (seasonMatch) return seasonMatch;
+
+    for (const item of data) {
+      const malId = parsePositiveInt(item?.myanimelist);
+      if (malId) return malId;
+    }
+
+    return null;
+  }
+
+  async function fetchArmMALId(metaId, seasonNumber) {
+    let url;
+    if (metaId.startsWith("kitsu:")) {
+      url = `https://arm.haglund.dev/api/v2/ids?source=kitsu&id=${encodeURIComponent(metaId.split(":")[1])}&include=myanimelist`;
+    } else if (metaId.startsWith("tt")) {
+      url = `https://arm.haglund.dev/api/v2/imdb?id=${encodeURIComponent(metaId.split(":")[0])}&include=myanimelist,thetvdb-season`;
+    } else {
+      return null;
+    }
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return null;
+
+      const data = await response.json();
+      const malId = pickArmMALId(data, seasonNumber);
+      if (malId) {
+        return malId;
+      }
+    } catch {}
+
+    return null;
+  }
+
+  async function fetchMALId(metaId, seasonNumber = 0) {
     // Direct Kitsu API query (CORS-enabled)
     if (metaId.startsWith("kitsu:")) {
       const kitsuId = metaId.split(":")[1];
@@ -232,42 +281,17 @@
             return malId;
           }
         }
-      } catch (e) {
-        console.warn("AniSkip: Direct Kitsu query failed, trying proxy fallback.", e);
-      }
+      } catch {}
     }
 
-    // CORS proxy fallback (for IMDb or failed Kitsu)
-    let targetUrl;
-    if (metaId.startsWith("kitsu:")) {
-      targetUrl = `https://animeapi.my.id/kitsu/${metaId.split(":")[1]}`;
-    } else if (metaId.startsWith("tt")) {
-      targetUrl = `https://animeapi.my.id/imdb/${metaId.split(":")[0]}`;
-    } else {
-      console.warn("AniSkip: Unsupported metadata provider ID:", metaId);
+    // Anime Relations Mapping
+    const armMalId = await fetchArmMALId(metaId, seasonNumber);
+    if (armMalId) return armMalId;
+
+    if (!metaId.startsWith("kitsu:") && !metaId.startsWith("tt")) {
       return null;
     }
 
-    const proxies = [
-      `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(targetUrl)}`,
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`
-    ];
-
-    for (const url of proxies) {
-      try {
-        const response = await fetch(url);
-        if (response.ok) {
-          const data = await response.json();
-          if (data?.myanimelist) {
-            return data.myanimelist;
-          }
-        }
-      } catch (e) {
-        console.warn("AniSkip: Proxy request failed:", url, e);
-      }
-    }
-
-    console.error("AniSkip: All MAL ID mapping attempts failed.");
     return null;
   }
 
@@ -289,9 +313,7 @@
         jikanRelationsCache.set(malId, data);
         return data;
       }
-    } catch (e) {
-      console.warn("AniSkip: Jikan relations fetch failed for:", malId, e);
-    }
+    } catch {}
     return [];
   }
 
@@ -303,7 +325,7 @@
 
     let currentId = initialMalId;
     let visited = new Set();
-
+    
     // 1. Traverse prequels to find Season 1
     for (let i = 0; i < 10; i++) {
       visited.add(currentId);
@@ -315,12 +337,12 @@
         break;
       }
     }
-
+    
     const season1Id = currentId;
     const seasons = [season1Id];
     currentId = season1Id;
     visited.clear();
-
+    
     // 2. Traverse sequels to build the ordered season list
     for (let i = 0; i < 10; i++) {
       visited.add(currentId);
@@ -333,7 +355,7 @@
         break;
       }
     }
-
+    
     const resolvedId = seasons[targetSeason - 1] || initialMalId;
     resolvedMalIdCache.set(cacheKey, resolvedId);
     return resolvedId;
@@ -346,12 +368,8 @@
       if (response.ok) {
         const data = await response.json();
         if (data.found) return data.results;
-      } else {
-        console.error(`AniSkip: API returned status ${response.status}`);
       }
-    } catch (e) {
-      console.error("AniSkip: Error querying API:", e);
-    }
+    } catch {}
     return [];
   }
 
@@ -470,7 +488,7 @@
   async function loadAniSkipForEpisode(metaInfo, seasonNumber, episodeNumber) {
     // Fetch MAL ID and poll for duration in parallel
     const malIdPromise = (async () => {
-      let malId = await fetchMALId(metaInfo.id);
+      let malId = await fetchMALId(metaInfo.id, seasonNumber);
       if (malId && seasonNumber > 0 && metaInfo.type === "series") {
         malId = await getSeasonMalId(malId, seasonNumber);
       }
@@ -489,12 +507,10 @@
     const [malId, duration] = await Promise.all([malIdPromise, durationPromise]);
 
     if (!malId) {
-      console.warn("AniSkip: MAL ID resolution failed.");
       return;
     }
 
     if (!duration || isNaN(duration)) {
-      console.warn("AniSkip: Failed to retrieve valid video duration.");
       return;
     }
 
