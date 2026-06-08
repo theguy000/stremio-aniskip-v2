@@ -14,4 +14,10 @@ A Stremio Lighting plugin that automatically or manually skips anime openings, e
 Download and install the plugin from Stremio Lightning Marketplace.
 
 ## Credits
-This project is inspired by the project [stremio-aniskip](https://github.com/REVENGE977/stremio-aniskip) by [REVENGE977](https://github.com/REVENGE977).
+
+- This project is inspired by [stremio-aniskip](https://github.com/REVENGE977/stremio-aniskip) by [REVENGE977](https://github.com/REVENGE977).
+- Skip segment data is provided by the [AniSkip API](https://api.aniskip.com/).
+- Anime ID mapping uses [AnimeAPI](https://animeapi.my.id/) for IMDb/Kitsu to MyAnimeList metadata.
+- IMDb/Kitsu to MyAnimeList mapping uses [ARM/BQA](https://arm.haglund.dev/docs) by BeeQueue.
+- Kitsu metadata is resolved through the [Kitsu API](https://kitsu.docs.apiary.io/) when available.
+- Season relation lookup uses [Jikan](https://jikan.moe/) for MyAnimeList relation data.
